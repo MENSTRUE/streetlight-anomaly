@@ -82,12 +82,32 @@ except Exception as exc:
     st.error(f"Could not score the data: {exc}")
     st.stop()
 
-# Preserve fictional UI IDs when demo data contains them.
-if "unit_id" in raw.columns:
-    id_map = raw[["building_id", "unit_id"]].drop_duplicates("building_id")
-    scored = scored.merge(id_map, on="building_id", how="left")
-else:
-    scored["unit_id"] = scored["building_id"].astype(str)
+# Preserve fictional UI IDs safely.
+# score_history() may already preserve unit_id, so avoid creating unit_id_x / unit_id_y.
+if "unit_id" not in scored.columns:
+    if "unit_id" in raw.columns:
+        if "building_id" in raw.columns:
+            id_map = (
+                raw[["building_id", "unit_id"]]
+                .drop_duplicates("building_id")
+                .copy()
+            )
+        else:
+            tmp = raw[["unit_id"]].copy()
+            tmp["building_id"] = pd.factorize(
+                tmp["unit_id"].astype(str),
+                sort=True,
+            )[0].astype("int32") + 100_000
+            id_map = tmp[["building_id", "unit_id"]].drop_duplicates("building_id")
+
+        scored = scored.merge(
+            id_map,
+            on="building_id",
+            how="left",
+            validate="many_to_one",
+        )
+    else:
+        scored["unit_id"] = scored["building_id"].map(lambda x: f"SL-{int(x):03d}")
 
 latest = (
     scored.sort_values(["building_id", "timestamp"])
